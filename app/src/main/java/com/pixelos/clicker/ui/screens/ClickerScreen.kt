@@ -1,5 +1,6 @@
 package com.pixelos.clicker.ui.screens
 
+import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -22,6 +23,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,15 +44,11 @@ data class UpgradeItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClickerScreen() {
-    var pixels by remember { mutableLongStateOf(0L) }
-    var clickPower by remember { mutableLongStateOf(1L) }
-    var autoCps by remember { mutableLongStateOf(0L) }
-    var totalTaps by remember { mutableLongStateOf(0L) }
-    var hapticEnabled by remember { mutableStateOf(true) }
-
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("pixel_clicker_save", Context.MODE_PRIVATE) }
     val haptic = LocalHapticFeedback.current
 
-    // Upgrades list
+    // Upgrades definition
     val upgrades = remember {
         mutableStateListOf(
             UpgradeItem("bot", "Авто-Кликер", "+1 пиксель/сек в фоне", Icons.Rounded.SmartToy, 15L, cpsBonus = 1L),
@@ -61,15 +59,88 @@ fun ClickerScreen() {
         )
     }
 
+    // Load initial values from SharedPreferences
+    var pixels by remember { mutableLongStateOf(prefs.getLong("saved_pixels", 0L)) }
+    var clickPower by remember { mutableLongStateOf(prefs.getLong("saved_click_power", 1L)) }
+    var autoCps by remember { mutableLongStateOf(prefs.getLong("saved_auto_cps", 0L)) }
+    var totalTaps by remember { mutableLongStateOf(prefs.getLong("saved_total_taps", 0L)) }
+    var hapticEnabled by remember { mutableStateOf(prefs.getBoolean("saved_haptic", true)) }
+
+    // Load upgrade counts
+    LaunchedEffect(Unit) {
+        upgrades.forEachIndexed { index, item ->
+            val savedCount = prefs.getInt("upgrade_${item.id}_count", 0)
+            upgrades[index] = item.copy(count = savedCount)
+        }
+    }
+
+    // Offline progress check
+    var offlineEarned by remember { mutableLongStateOf(0L) }
+    var showOfflineDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val lastTime = prefs.getLong("last_save_time", 0L)
+        val now = System.currentTimeMillis()
+        if (lastTime > 0L && autoCps > 0L) {
+            val secondsAway = ((now - lastTime) / 1000L).coerceIn(0L, 86400L) // Max 24 hours
+            if (secondsAway >= 5L) {
+                val earned = secondsAway * autoCps
+                if (earned > 0L) {
+                    offlineEarned = earned
+                    pixels += earned
+                    showOfflineDialog = true
+                }
+            }
+        }
+    }
+
+    // Helper save function
+    fun saveGameState() {
+        prefs.edit().apply {
+            putLong("saved_pixels", pixels)
+            putLong("saved_click_power", clickPower)
+            putLong("saved_auto_cps", autoCps)
+            putLong("saved_total_taps", totalTaps)
+            putBoolean("saved_haptic", hapticEnabled)
+            putLong("last_save_time", System.currentTimeMillis())
+            upgrades.forEach {
+                putInt("upgrade_${it.id}_count", it.count)
+            }
+            apply()
+        }
+    }
+
+    // Auto-save periodically every 3 seconds
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3000L)
+            saveGameState()
+        }
+    }
+
     // Auto-clicker ticker loop
     LaunchedEffect(autoCps) {
         while (true) {
             delay(1000L)
-            if (autoCps > 0) {
+            if (autoCps > 0L) {
                 pixels += autoCps
             }
         }
     }
+
+    // Boost timer (x2 multiplier)
+    var boostSecondsLeft by remember { mutableIntStateOf(0) }
+    LaunchedEffect(boostSecondsLeft) {
+        if (boostSecondsLeft > 0) {
+            delay(1000L)
+            boostSecondsLeft -= 1
+        }
+    }
+
+    // Reset Dialog state
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    val effectiveClickPower = if (boostSecondsLeft > 0) clickPower * 2 else clickPower
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -79,13 +150,59 @@ fun ClickerScreen() {
         label = "ButtonBounce"
     )
 
+    // Offline Dialog
+    if (showOfflineDialog) {
+        AlertDialog(
+            onDismissRequest = { showOfflineDialog = false },
+            icon = { Icon(Icons.Rounded.RocketLaunch, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Добро пожаловать обратно!") },
+            text = { Text("Пока тебя не было, твои авто-кликеры нафармили +${offlineEarned} пикселей в фоне!") },
+            confirmButton = {
+                Button(onClick = { showOfflineDialog = false }) {
+                    Text("Забрать")
+                }
+            }
+        )
+    }
+
+    // Reset Progress Dialog
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            icon = { Icon(Icons.Rounded.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Сбросить прогресс?") },
+            text = { Text("Все накопленные пиксели и купленные улучшения будут сброшены до нуля.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pixels = 0L
+                        clickPower = 1L
+                        autoCps = 0L
+                        totalTaps = 0L
+                        upgrades.forEachIndexed { idx, it -> upgrades[idx] = it.copy(count = 0) }
+                        prefs.edit().clear().apply()
+                        showResetDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Да, сбросить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Rounded.AutoStories,
+                            imageVector = Icons.Rounded.Bolt,
                             contentDescription = "Logo",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(28.dp)
@@ -99,11 +216,21 @@ fun ClickerScreen() {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { hapticEnabled = !hapticEnabled }) {
+                    IconButton(onClick = {
+                        hapticEnabled = !hapticEnabled
+                        saveGameState()
+                    }) {
                         Icon(
                             imageVector = if (hapticEnabled) Icons.Rounded.Vibration else Icons.Rounded.VolumeMute,
                             contentDescription = "Вибрация",
                             tint = if (hapticEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    IconButton(onClick = { showResetDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.RestartAlt,
+                            contentDescription = "Сброс",
+                            tint = MaterialTheme.colorScheme.outline
                         )
                     }
                 },
@@ -121,7 +248,7 @@ fun ClickerScreen() {
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Stat Cards Row
             Row(
@@ -135,7 +262,13 @@ fun ClickerScreen() {
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text("Сила клика", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("+${clickPower}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("+${effectiveClickPower}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            if (boostSecondsLeft > 0) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("x2 🔥", fontSize = 14.sp, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
                 Card(
@@ -150,12 +283,37 @@ fun ClickerScreen() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            // Boost active indicator bar
+            if (boostSecondsLeft > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.ElectricBolt, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Двойной буст активен: ${boostSecondsLeft / 60}:%02d".format(boostSecondsLeft % 60),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Main Score Display
             Text(
                 text = "${pixels}",
-                fontSize = 54.sp,
+                fontSize = 52.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -165,14 +323,14 @@ fun ClickerScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Main Interactive Big Tap Target
             Box(
                 modifier = Modifier
-                    .size(190.dp)
+                    .size(180.dp)
                     .scale(scale)
-                    .clip(RoundedCornerShape(48.dp))
+                    .clip(RoundedCornerShape(44.dp))
                     .background(
                         Brush.linearGradient(
                             colors = listOf(
@@ -185,7 +343,7 @@ fun ClickerScreen() {
                         interactionSource = interactionSource,
                         indication = null
                     ) {
-                        pixels += clickPower
+                        pixels += effectiveClickPower
                         totalTaps += 1
                         if (hapticEnabled) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -197,33 +355,88 @@ fun ClickerScreen() {
                     imageVector = Icons.Rounded.TouchApp,
                     contentDescription = "Клик",
                     tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(80.dp)
+                    modifier = Modifier.size(76.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Boost Action Card (Bonus Reward)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        // Activate 3-minute 2x Boost + 300 free pixels
+                        boostSecondsLeft = 180
+                        pixels += 300L
+                        if (hapticEnabled) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                        saveGameState()
+                    },
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Бонусный Буст x2", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text("+300 пикселей и клики x2 на 3 мин", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f))
+                    }
+                    Button(
+                        onClick = {
+                            boostSecondsLeft = 180
+                            pixels += 300L
+                            if (hapticEnabled) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            saveGameState()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("Врубить ⚡", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             // Upgrades Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.ShoppingBag, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.ShoppingBag, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Магазин улучшений",
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Upgrades List
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 20.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(upgrades) { upgrade ->
                     val currentCost = (upgrade.baseCost * Math.pow(1.15, upgrade.count.toDouble())).toLong()
@@ -235,15 +448,20 @@ fun ClickerScreen() {
                             .clickable(enabled = canAfford) {
                                 if (canAfford) {
                                     pixels -= currentCost
-                                    upgrade.count += 1
+                                    val newCount = upgrade.count + 1
+                                    val idx = upgrades.indexOf(upgrade)
+                                    if (idx != -1) {
+                                        upgrades[idx] = upgrade.copy(count = newCount)
+                                    }
                                     clickPower += upgrade.clickBonus
                                     autoCps += upgrade.cpsBonus
                                     if (hapticEnabled) {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
+                                    saveGameState()
                                 }
                             },
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (canAfford) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         )
@@ -251,12 +469,12 @@ fun ClickerScreen() {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
+                                .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
@@ -265,22 +483,22 @@ fun ClickerScreen() {
                                     imageVector = upgrade.icon,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(14.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "${upgrade.title} (${upgrade.count})",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = upgrade.description,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -289,19 +507,24 @@ fun ClickerScreen() {
                                 onClick = {
                                     if (canAfford) {
                                         pixels -= currentCost
-                                        upgrade.count += 1
+                                        val newCount = upgrade.count + 1
+                                        val idx = upgrades.indexOf(upgrade)
+                                        if (idx != -1) {
+                                            upgrades[idx] = upgrade.copy(count = newCount)
+                                        }
                                         clickPower += upgrade.clickBonus
                                         autoCps += upgrade.cpsBonus
                                         if (hapticEnabled) {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
+                                        saveGameState()
                                     }
                                 },
                                 enabled = canAfford,
-                                shape = RoundedCornerShape(12.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("${currentCost} ⚡", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("${currentCost} ⚡", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
