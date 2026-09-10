@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient (Deep M3 Surface) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c202a"/>
+      <stop offset="50%" stop-color="#13161c"/>
+      <stop offset="100%" stop-color="#0d0f14"/>
+    </linearGradient>
+
+    <!-- Core Pixel Gradient (Material You Ice-Blue) -->
+    <linearGradient id="coreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c2e7ff"/>
+      <stop offset="40%" stop-color="#a8c7fa"/>
+      <stop offset="100%" stop-color="#669df6"/>
+    </linearGradient>
+
+    <!-- Accent Gradient for Orbitals -->
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d3e3fd"/>
+      <stop offset="100%" stop-color="#7cacf8"/>
+    </linearGradient>
+
+    <!-- Soft Glow Filter -->
+    <filter id="coreGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#a8c7fa" flood-opacity="0.35"/>
+    </filter>
+
+    <!-- Subtle Button Shadow -->
+    <filter id="bgShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="24" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- M3 Squircle Base -->
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#bgGrad)" filter="url(#bgShadow)"/>
+  <!-- Subtle Border -->
+  <rect x="17" y="17" width="478" height="478" rx="119" fill="none" stroke="#2c3242" stroke-width="2.5"/>
+
+  <!-- Click Ripple Waves (Concentric subtle circles) -->
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#252d3d" stroke-width="2" stroke-dasharray="10 8" opacity="0.7"/>
+  <circle cx="256" cy="256" r="132" fill="none" stroke="#333e54" stroke-width="2.5" opacity="0.8"/>
+
+  <!-- Orbital Pixels (Ejected upon clicks) -->
+  <!-- Top Pixel -->
+  <rect x="236" y="80" width="40" height="40" rx="10" fill="url(#accentGrad)"/>
+  <!-- Bottom Pixel -->
+  <rect x="236" y="392" width="40" height="40" rx="10" fill="url(#accentGrad)"/>
+  <!-- Left Pixel -->
+  <rect x="80" y="236" width="40" height="40" rx="10" fill="url(#accentGrad)"/>
+  <!-- Right Pixel -->
+  <rect x="392" y="236" width="40" height="40" rx="10" fill="url(#accentGrad)"/>
+
+  <!-- Corner Tiny Micro-Pixels -->
+  <rect x="144" y="144" width="22" height="22" rx="6" fill="#4d6b99" opacity="0.6"/>
+  <rect x="346" y="144" width="22" height="22" rx="6" fill="#4d6b99" opacity="0.6"/>
+  <rect x="144" y="346" width="22" height="22" rx="6" fill="#4d6b99" opacity="0.6"/>
+  <rect x="346" y="346" width="22" height="22" rx="6" fill="#4d6b99" opacity="0.6"/>
+
+  <!-- Central Quantum Pixel (The Big Click Target) -->
+  <g filter="url(#coreGlow)">
+    <rect x="176" y="176" width="160" height="160" rx="38" fill="url(#coreGrad)"/>
+  </g>
+
+  <!-- High-Energy Lightning / Pointer inside Core (Pure white cutout) -->
+  <!-- Crisp, geometric energy bolt symbol -->
+  <path d="M264 200 L230 258 L256 258 L248 312 L282 254 L256 254 Z"
+        fill="#0f172a" stroke="#0f172a" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

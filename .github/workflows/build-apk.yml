@@ -32,14 +32,14 @@ jobs:
           fi
           chmod +x gradlew
 
-      - name: Build Android Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build Android Release and Debug APKs
+        run: ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK as Workflow Artifact
+      - name: Upload APKs as Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pixel-clicker-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: pixel-clicker-apks
+          path: app/build/outputs/apk/**/*.apk
 
       - name: Create GitHub Release with APK download
         uses: softprops/action-gh-release@v2
@@ -48,11 +48,11 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Pixel Clicker v1.0.${{ github.run_number }}
           body: |
-            ### 🎮 Pixel Clicker (Android 16 • PixelOS)
-            - **Готовый APK файл для установки на телефон** прикреплен ниже (`app-debug.apk`).
-            - **Material You Monet:** динамические цвета приложения адаптируются под цвет ваших обоев на PixelOS.
-            - **Haptic feedback:** тактильная виброотдача при каждом тапе.
-            - **Splash Screen:** фирменный плавный запуск в стиле Google Pixel.
-          files: app/build/outputs/apk/debug/*.apk
+            ### 🎮 Pixel Clicker (Android 16 • RuStore Ready)
+            - **`app-release.apk`** — официальная подписанная релизная сборка для загрузки в **RuStore**!
+            - **`app-debug.apk`** — тестовая сборка для телефона.
+            - Новый чистый векторный логотип (без ИИ слопа).
+            - Цифровая подпись разработчика (Keystore RSA 2048).
+          files: app/build/outputs/apk/**/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
